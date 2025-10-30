@@ -1,11 +1,12 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Diagnostics;
 
-namespace Lab_2_4
+namespace Lab_2_5
 {
-    public enum Frequency { Щотижневий, Щомісячний, Щорічний }
+    public enum Frequency { Weekly, Monthly, Yearly }
 
     public interface IRateAndCopy
     {
@@ -46,10 +47,7 @@ namespace Lab_2_4
 
         public static bool operator !=(Person left, Person right) => !(left == right);
 
-        public override int GetHashCode()
-        {
-            return FirstName.GetHashCode() ^ LastName.GetHashCode() ^ BirthDate.GetHashCode();
-        }
+        public override int GetHashCode() => FirstName.GetHashCode() ^ LastName.GetHashCode() ^ BirthDate.GetHashCode();
 
         public virtual object DeepCopy() => new Person(FirstName, LastName, BirthDate);
     }
@@ -74,7 +72,7 @@ namespace Lab_2_4
         public virtual object DeepCopy() => new Article((Person)Author.DeepCopy(), Title, Rating);
     }
 
-    public class Edition
+    public class Edition : IComparable<Edition>, IComparer<Edition>
     {
         protected string name;
         protected DateTime releaseDate;
@@ -84,7 +82,7 @@ namespace Lab_2_4
         {
             this.name = name;
             this.releaseDate = releaseDate;
-            this.circulation = circulation;
+            this.Circulation = circulation;
         }
 
         public Edition() : this("Невідоме видання", DateTime.Now, 1000) { }
@@ -96,13 +94,14 @@ namespace Lab_2_4
             get => circulation;
             set
             {
-                if (value < 0)
-                    throw new ArgumentException("Тираж не може бути від'ємним. Допустимі значення >= 0.");
+                if (value < 0) throw new ArgumentException("Тираж не може бути від'ємним.");
                 circulation = value;
             }
         }
 
         public virtual object DeepCopy() => new Edition(name, releaseDate, circulation);
+
+        public override string ToString() => $"Видання: {name}, Дата: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}";
 
         public override bool Equals(object obj)
         {
@@ -110,6 +109,8 @@ namespace Lab_2_4
                 return name == e.name && releaseDate == e.releaseDate && circulation == e.circulation;
             return false;
         }
+
+        public override int GetHashCode() => name.GetHashCode() ^ releaseDate.GetHashCode() ^ circulation.GetHashCode();
 
         public static bool operator ==(Edition left, Edition right)
         {
@@ -120,45 +121,50 @@ namespace Lab_2_4
 
         public static bool operator !=(Edition left, Edition right) => !(left == right);
 
-        public override int GetHashCode()
+        public int CompareTo(Edition other)
         {
-            return name.GetHashCode() ^ releaseDate.GetHashCode() ^ circulation.GetHashCode();
+            if (other == null) return 1;
+            return string.Compare(this.name, other.name, StringComparison.Ordinal);
         }
 
-        public override string ToString() =>
-            $"Видання: {name}, Дата випуску: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}";
+        public int Compare(Edition x, Edition y)
+        {
+            if (x == null || y == null) return 0;
+            return DateTime.Compare(x.ReleaseDate, y.ReleaseDate);
+        }
     }
 
-    public class Magazine : Edition, IRateAndCopy, IEnumerable
+    public class EditionCirculationComparer : IComparer<Edition>
+    {
+        public int Compare(Edition x, Edition y)
+        {
+            if (x == null || y == null) return 0;
+            return x.Circulation.CompareTo(y.Circulation);
+        }
+    }
+
+    public class Magazine : Edition, IRateAndCopy
     {
         private Frequency frequency;
-        private ArrayList editors;
-        private ArrayList articles;
+        private List<Person> editors;
+        private List<Article> articles;
 
         public Magazine(string name, Frequency frequency, DateTime releaseDate, int circulation)
             : base(name, releaseDate, circulation)
         {
             this.frequency = frequency;
-            editors = new ArrayList();
-            articles = new ArrayList();
+            editors = new List<Person>();
+            articles = new List<Article>();
         }
 
-        public Magazine() : this("Невідомо", Frequency.Щомісячний, DateTime.Now, 1000) { }
+        public Magazine() : this("Невідомо", Frequency.Monthly, DateTime.Now, 1000) { }
 
         public Frequency Frequency { get => frequency; set => frequency = value; }
-        public ArrayList Editors { get => editors; set => editors = value; }
-        public ArrayList Articles { get => articles; set => articles = value; }
+        public List<Person> Editors { get => editors; set => editors = value; }
+        public List<Article> Articles { get => articles; set => articles = value; }
 
-        public double Rating
-        {
-            get
-            {
-                if (articles.Count == 0) return 0.0;
-                double sum = 0;
-                foreach (Article a in articles) sum += a.Rating;
-                return sum / articles.Count;
-            }
-        }
+        public double Rating => articles.Count == 0 ? 0.0 : articles.Average(a => a.Rating);
+
         public Edition Edition
         {
             get => new Edition(name, releaseDate, circulation);
@@ -170,20 +176,14 @@ namespace Lab_2_4
             }
         }
 
-        public void AddArticles(params Article[] newArticles)
-        {
-            foreach (var a in newArticles) articles.Add(a);
-        }
+        public void AddArticles(params Article[] newArticles) => articles.AddRange(newArticles);
 
-        public void AddEditors(params Person[] newEditors)
-        {
-            foreach (var e in newEditors) editors.Add(e);
-        }
+        public void AddEditors(params Person[] newEditors) => editors.AddRange(newEditors);
 
         public override string ToString()
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine($"Журнал: {name}, Періодичність: {frequency}, Дата випуску: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}");
+            sb.AppendLine($"Журнал: {name}, Періодичність: {frequency}, Дата: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}");
             sb.AppendLine("Редактори:");
             foreach (Person e in editors) sb.AppendLine($"  - {e}");
             sb.AppendLine("Статті:");
@@ -192,159 +192,165 @@ namespace Lab_2_4
             return sb.ToString();
         }
 
-        public virtual string ToShortString() =>
-            $"Журнал: {name}, Періодичність: {frequency}, Дата випуску: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}, Сер. рейтинг: {Rating:F2}";
+        public string ToShortString() =>
+            $"Журнал: {name}, Періодичність: {frequency}, Дата: {releaseDate:yyyy-MM-dd}, Тираж: {circulation}, Сер. рейтинг: {Rating:F2}, Редакторів: {editors.Count}, Статей: {articles.Count}";
 
         public override object DeepCopy()
         {
             Magazine copy = new Magazine(name, frequency, releaseDate, circulation);
-            foreach (Person e in editors) copy.editors.Add(e.DeepCopy());
-            foreach (Article a in articles) copy.articles.Add(a.DeepCopy());
+            foreach (var e in editors) copy.editors.Add((Person)e.DeepCopy());
+            foreach (var a in articles) copy.articles.Add((Article)a.DeepCopy());
             return copy;
         }
+    }
 
-        public IEnumerable<Article> GetArticlesWithRatingGreaterThan(double minRating)
+    public class MagazineCollection
+    {
+        private List<Magazine> magazines = new List<Magazine>();
+
+        public void AddDefaults()
         {
-            foreach (Article a in articles)
-                if (a.Rating > minRating) yield return a;
+            var mag1 = new Magazine("Наука", Frequency.Monthly, DateTime.Now, 5000);
+            mag1.AddArticles(
+                new Article(new Person("Автор 1", "Прізвище", DateTime.Now.AddYears(-30)), "Стаття 1", 4.5)
+            );
+
+            var mag2 = new Magazine("Техніка", Frequency.Weekly, DateTime.Now.AddDays(-7), 2000);
+            mag2.AddArticles(
+                new Article(new Person("Автор 2", "Прізвище", DateTime.Now.AddYears(-25)), "Стаття 2", 4.2)
+            );
+
+            magazines.Add(mag1);
+            magazines.Add(mag2);
         }
 
-        public IEnumerable<Article> GetArticlesWithTitleContaining(string str)
-        {
-            foreach (Article a in articles)
-                if (a.Title.Contains(str)) yield return a;
-        }
 
-        public IEnumerable<Article> GetArticlesByEditors()
-        {
-            foreach (Article a in articles)
-                foreach (Person e in editors)
-                    if (a.Author == e)
-                    {
-                        yield return a;
-                        break;
-                    }
-        }
+        public void AddMagazines(params Magazine[] newMags) => magazines.AddRange(newMags);
 
-        public IEnumerable<Person> GetEditorsWithoutArticles()
+        public override string ToString() => string.Join("\n\n", magazines.Select(m => m.ToString()));
+
+        public string ToShortString() => string.Join("\n", magazines.Select(m => m.ToShortString()));
+
+        public void SortByName() => magazines.Sort();
+        public void SortByReleaseDate() => magazines.Sort(new Edition());
+        public void SortByCirculation() => magazines.Sort(new EditionCirculationComparer());
+
+        public double MaxRating => magazines.Count == 0 ? 0.0 : magazines.Max(m => m.Rating);
+
+        public IEnumerable<Magazine> MonthlyMagazines => magazines.Where(m => m.Frequency == Frequency.Monthly);
+
+        public List<Magazine> RatingGroup(double value) => magazines.Where(m => m.Rating >= value).ToList();
+    }
+
+    public class TestCollections
+    {
+        private List<Edition> editions;
+        private List<string> editionStrings;
+        private Dictionary<Edition, Magazine> editionMagazine;
+        private Dictionary<string, Magazine> stringMagazine;
+
+        public TestCollections(int count)
         {
-            foreach (Person e in editors)
+            editions = new List<Edition>();
+            editionStrings = new List<string>();
+            editionMagazine = new Dictionary<Edition, Magazine>();
+            stringMagazine = new Dictionary<string, Magazine>();
+
+            for (int i = 0; i < count; i++)
             {
-                bool hasArticle = false;
-                foreach (Article a in articles)
-                    if (a.Author == e) { hasArticle = true; break; }
-                if (!hasArticle) yield return e;
+                Magazine mag = GenerateMagazine(i);
+                Edition ed = mag.Edition;
+
+                editions.Add(ed);
+                editionStrings.Add(ed.ToString());
+                editionMagazine[ed] = mag;
+                stringMagazine[ed.ToString()] = mag;
             }
         }
 
-        public IEnumerator GetEnumerator() => new MagazineEnumerator(articles, editors);
-
-        public class MagazineEnumerator : IEnumerator
+        public static Magazine GenerateMagazine(int index)
         {
-            private ArrayList articles;
-            private ArrayList editors;
-            private int currentIndex = -1;
-
-            public MagazineEnumerator(ArrayList articles, ArrayList editors)
+            return new Magazine($"Журнал {index}", Frequency.Monthly, DateTime.Now.AddDays(index), 1000 + index * 100)
             {
-                this.articles = articles;
-                this.editors = editors;
-            }
+                Editors = new List<Person> { new Person($"Редактор {index}", "Прізвище", DateTime.Now.AddYears(-30)) },
+                Articles = new List<Article> { new Article(new Person($"Автор {index}", "Прізвище", DateTime.Now.AddYears(-25)), $"Стаття {index}", 3.0 + (index % 3)) }
+            };
+        }
 
-            public object Current => articles[currentIndex];
+        public void TestSearch(int index)
+        {
+            var first = editions.First();
+            var middle = editions[editions.Count / 2];
+            var last = editions.Last();
+            var notFound = new Edition("Немає", DateTime.Now, 0);
 
-            public bool MoveNext()
+            var testItems = new List<Edition> { first, middle, last, notFound };
+
+            foreach (var item in testItems)
             {
-                currentIndex++;
-                while (currentIndex < articles.Count)
-                {
-                    Article a = (Article)articles[currentIndex];
-                    bool isEditor = false;
-                    foreach (Person e in editors)
-                        if (a.Author == e) { isEditor = true; break; }
-                    if (!isEditor) return true;
-                    currentIndex++;
-                }
-                return false;
-            }
+                Stopwatch sw = Stopwatch.StartNew();
+                editions.Contains(item);
+                sw.Stop();
+                Console.WriteLine($"List<Edition> contains {item.Name}: {sw.ElapsedTicks} ticks");
 
-            public void Reset() => currentIndex = -1;
+                sw.Restart();
+                editionMagazine.ContainsKey(item);
+                sw.Stop();
+                Console.WriteLine($"Dictionary<Edition,Magazine> containsKey {item.Name}: {sw.ElapsedTicks} ticks");
+
+                sw.Restart();
+                editionMagazine.ContainsValue(editionMagazine.ContainsKey(item) ? editionMagazine[item] : null);
+                sw.Stop();
+                Console.WriteLine($"Dictionary<Edition,Magazine> containsValue {item.Name}: {sw.ElapsedTicks} ticks");
+                Console.WriteLine();
+            }
         }
     }
 
     internal class Program
     {
-        static void Main(string[] args)
+        static void Main()
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            Console.WriteLine("=== Варіант 2 ===\n");
-
-            Edition e1 = new Edition("Тест", new DateTime(2024, 1, 1), 1000);
-            Edition e2 = new Edition("Тест", new DateTime(2024, 1, 1), 1000);
-            Console.WriteLine($"Посилання однакові: {ReferenceEquals(e1, e2)}");
-            Console.WriteLine($"Об'єкти рівні: {e1 == e2}");
-            Console.WriteLine($"Хеш-коди: {e1.GetHashCode()} | {e2.GetHashCode()}\n");
-
-            try
-            {
-                e1.Circulation = -10;
-            }
-            catch (ArgumentException ex)
-            {
-                Console.WriteLine($"Виняток: {ex.Message}\n");
-            }
-
-            Magazine mag = new Magazine("Світ науки", Frequency.Щомісячний, new DateTime(2024, 3, 1), 20000);
-            Person ed1 = new Person("Аліса", "Джонсон", new DateTime(1980, 1, 1));
-            Person ed2 = new Person("Боб", "Сміт", new DateTime(1975, 6, 10));
-            Person a1 = new Person("Чарлі", "Браун", new DateTime(1990, 5, 5));
-            mag.AddEditors(ed1, ed2);
-            mag.AddArticles(
-                new Article(ed1, "Редакція про ШІ", 4.3),
-                new Article(a1, "Квантова механіка", 4.8)
+            MagazineCollection coll = new MagazineCollection();
+            coll.AddDefaults();
+            coll.AddMagazines(
+                new Magazine("Світ науки", Frequency.Monthly, new DateTime(2024, 3, 1), 20000),
+                new Magazine("Техно", Frequency.Weekly, new DateTime(2024, 2, 15), 15000)
             );
-            Console.WriteLine(mag);
-            Console.WriteLine();
 
-            Console.WriteLine("Властивість Edition:");
-            Console.WriteLine(mag.Edition);
-            Console.WriteLine();
+            Console.WriteLine("=== Повна інформація про колекцію ===");
+            Console.WriteLine(coll.ToString());
 
-            Magazine copy = (Magazine)mag.DeepCopy();
-            mag.Name = "Змінено";
-            Console.WriteLine("Оригінал змінено:");
-            Console.WriteLine(mag.ToShortString());
-            Console.WriteLine("Копія (не змінена):");
-            Console.WriteLine(copy.ToShortString());
-            Console.WriteLine();
+            Console.WriteLine("\n=== Коротка інформація про колекцію ===");
+            Console.WriteLine(coll.ToShortString());
 
-            Console.WriteLine("Статті з рейтингом > 4.0:");
-            foreach (var art in mag.GetArticlesWithRatingGreaterThan(4.0))
-                Console.WriteLine($"  - {art}");
-            Console.WriteLine();
+            Console.WriteLine("\n=== Сортування за назвою ===");
+            coll.SortByName();
+            Console.WriteLine(coll.ToShortString());
 
-            Console.WriteLine("Статті, що містять 'ШІ':");
-            foreach (var art in mag.GetArticlesWithTitleContaining("ШІ"))
-                Console.WriteLine($"  - {art}");
-            Console.WriteLine();
+            Console.WriteLine("\n=== Сортування за датою виходу ===");
+            coll.SortByReleaseDate();
+            Console.WriteLine(coll.ToShortString());
 
-            Console.WriteLine("Статті не редакторів:");
-            foreach (Article a in mag)
-                Console.WriteLine($"  - {a}");
-            Console.WriteLine();
+            Console.WriteLine("\n=== Сортування за тиражем ===");
+            coll.SortByCirculation();
+            Console.WriteLine(coll.ToShortString());
 
-            Console.WriteLine("Статті редакторів:");
-            foreach (var art in mag.GetArticlesByEditors())
-                Console.WriteLine($"  - {art}");
-            Console.WriteLine();
+            Console.WriteLine($"\nМаксимальний рейтинг журналів: {coll.MaxRating:F2}");
 
-            Console.WriteLine("Редактори без статей:");
-            foreach (var ed in mag.GetEditorsWithoutArticles())
-                Console.WriteLine($"  - {ed}");
-            Console.WriteLine();
+            Console.WriteLine("\nЖурнали з періодичністю Monthly:");
+            foreach (var m in coll.MonthlyMagazines)
+                Console.WriteLine(m.ToShortString());
 
-            Console.WriteLine("=== Кінець тестів Варіанту 2 ===");
+            Console.WriteLine("\nЖурнали з рейтингом >= 4.0:");
+            foreach (var m in coll.RatingGroup(4.0))
+                Console.WriteLine(m.ToShortString());
+
+            Console.WriteLine("\n=== Тестування колекцій ===");
+            TestCollections testColl = new TestCollections(10);
+            testColl.TestSearch(0);
         }
     }
 }
